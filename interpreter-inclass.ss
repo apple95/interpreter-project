@@ -59,7 +59,11 @@
 
 (define-datatype proc-val proc-val?
   [prim-proc
-   (name symbol?)])
+   (name symbol?)]
+  [closure
+   (params (list-of symbol?))
+   (body expression?)
+   (env environment?)])
 	 
 	 
 	 
@@ -105,7 +109,7 @@
 ;;checks if an element is a 'lit'
 (define lit-exp?
   (lambda (datum)
-    (or (number? datum) (string? datum) (boolean? datum) (vector? datum) (list? datum))))
+    (or (symbol? datum) (number? datum) (string? datum) (boolean? datum) (vector? datum) (list? datum))))
 ;;
 (define parse-exp
   (lambda (datum)
@@ -114,7 +118,7 @@
       ((or (number? datum) (string? datum) (boolean? datum) (vector? datum)) (lit-exp datum))
       ((list? datum)
        (cond
-       ((eqv? (car datum) 'quote) (lit-exp datum))
+       ((equal? (car datum) 'quote) (lit-exp (cadr datum)))
        ((eqv? (car datum) 'lambda)
 	(if (<= (length (cdr datum)) 1) (eopl:error 'parse-exp "Invalid lambda expression length ~s" datum)
 	    (if (symbol? (cadr datum)) (lambda-symbol-exp (cadr datum) (map parse-exp (cddr datum)))
@@ -326,6 +330,7 @@
 		       (begin
 			 (eval-exp (car bodies) envir)
 			 (loop (cdr bodies))))))]
+    
       [if-else-exp (test then-body else-body)
 	      (if (eval-exp test env) (eval-exp then-body env) (eval-exp else-body env))]
       [if-exp (test then-body)
@@ -353,12 +358,15 @@
   (lambda (proc-value args)
     (cases proc-val proc-value
       [prim-proc (op) (apply-prim-proc op args)]
+      [closure (params body env)
+	       (let ([extend-env (extended-env params args env)])
+		 (eval-exp body env))]
 			; You will add other cases
       [else (error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
 
-(define *prim-proc-names* '(+ - * add1 sub1 cons =))
+(define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr list null? assq eq? equal? atom? length list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline))
 
 (define init-env         ; for now, our initial global environment only contains 
   (extend-env            ; procedure names.  Recall that an environment associates
@@ -369,17 +377,51 @@
 
 ; Usually an interpreter must define each 
 ; built-in procedure individually.  We are "cheating" a little bit.
-
+  
 (define apply-prim-proc
   (lambda (prim-proc args)
+    (display args)
     (case prim-proc
-      [(+) (+ (1st args) (2nd args))]
+      [(+) (+ (1st args) (2nd args))] ;;needs multiple args
       [(-) (- (1st args) (2nd args))]
-      [(*) (* (1st args) (2nd args))]
+      [(*) (* (1st args) (2nd args))] ;;needs multiple args
+      [(/) (/ (1st args) (2nd args))]
       [(add1) (+ (1st args) 1)]
       [(sub1) (- (1st args) 1)]
+      [(zero?) (zero? (1st args))]
+      [(not) (not (1st args))]
       [(cons) (cons (1st args) (2nd args))]
       [(=) (= (1st args) (2nd args))]
+      [(and) (andmap args)]
+      [(<) (< (1st args) (2nd args))]
+      [(>) (> (1st args) (2nd args))]
+      [(<=) (<= (1st args) (2nd args))]
+      [(>=) (>= (1st args) (2nd args))]
+      [(car) (car (1st args))]
+      [(cdr) (cdr (1st args))]
+      [(list) (list (1st args) (2nd args))] ;;needs multiple args
+      [(null?) (null? (1st args))]
+      [(assq) (assq (1st args) (2nd args))]
+      [(eq?) (eq? (1st args) (2nd args))]
+      [(equal?) (equal? (1st args) (2nd args))]
+      [(atom?) (atom? (1st args))]
+      [(length) (length (1st args))]
+      [(list->vector) (list->vector (1st args))]
+      [(list?) (list? (1st args))]
+      [(pair?) (pair? (1st args))]
+      [(procedure?) (procedure? (1st args))]
+      [(vector->list) (vector->list (1st args))]
+      [(vector) (vector (1st args) (2nd args))] ;;needs multiple args
+      [(make-vector) (make-vector (1st args) (2nd args))]
+      [(vector-ref) (vector-ref (1st args) (2nd args))]
+      [(vector?) (vector? (1st args))]
+      [(number?) (number? (1st args))]
+      [(symbol?) (symbol? (1st args))]
+      [(set-car!) (set-car! (1st args) (2nd args))]
+      [(set-cdr!) (set-cdr! (1st args) (2nd args))]
+      [(vector-set!) (vector-set! (1st args) (2nd args))]
+      [(display) (display (1st args))]
+      [(newline) (newline)]
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
             prim-op)])))
@@ -402,20 +444,6 @@
   )
 )  ; tail-recursive, so stack doesn't grow.
 
-(define exit
-    (lambda ()
-      (list)
-  )
-)
-
-(define exit?
-  (lambda (input)
-    (begin
-    (display input)
-    (display (eq? input 'exit))
-    )
-  )
-)
 
 
 (define eval-one-exp
