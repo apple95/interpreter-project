@@ -408,7 +408,7 @@
       [(list->vector) (list->vector (1st args))]
       [(list?) (list? (1st args))]
       [(pair?) (pair? (1st args))]
-      [(procedure?) (procedure? (1st args))]
+      [(procedure?) (or (procedure? (1st args)) (proc-val? (1st args)))]
       [(vector->list) (vector->list (1st args))]
       [(vector) (apply vector args)] ;;needs multiple args
       [(make-vector) (make-vector (1st args) (2nd args))]
