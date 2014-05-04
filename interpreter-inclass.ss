@@ -62,7 +62,7 @@
    (name symbol?)]
   [closure
    (params (list-of symbol?))
-   (body expression?)
+   (body (list-of expression?))
    (env environment?)])
 	 
 	 
@@ -359,8 +359,8 @@
     (cases proc-val proc-value
       [prim-proc (op) (apply-prim-proc op args)]
       [closure (params body env)
-	       (let ([extend-env (extended-env params args env)])
-		 (eval-exp body env))]
+	       (let ([extended-env (extend-env params args env)])
+		 (eval-exp (car body) extended-env))]
 			; You will add other cases
       [else (error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
