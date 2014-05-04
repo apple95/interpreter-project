@@ -57,16 +57,9 @@
 ; datatype for procedures.  At first there is only one
 ; kind of procedure, but more kinds will be added later.
 
-(define-datatype proc-val proc-val?
-  [prim-proc
-   (name symbol?)]
-  [closure
-   (params (list-of symbol?))
-   (body (list-of expression?))
-   (env environment?)])
+
 	 
-	 
-	 
+
 	
 ;; environment type definitions
 
@@ -81,7 +74,13 @@
    (env environment?)))
 
 
-
+(define-datatype proc-val proc-val?
+  [prim-proc
+   (name symbol?)]
+  [closure
+   (params (list-of symbol?))
+   (body (list-of expression?))
+   (env environment?)])
 
 
 
@@ -297,17 +296,26 @@
 ;   INTERPRETER    |
 ;                   |
 ;-------------------+
+(define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr list null? assq eq? equal? atom? length list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cddr))
 
+(define init-env         ; for now, our initial global environment only contains 
+  (extend-env            ; procedure names.  Recall that an environment associates
+     *prim-proc-names*   ;  a value (not an expression) with an identifier.
+     (map prim-proc      
+          *prim-proc-names*)
+     (empty-env)))
+	 
 
 
 ; top-level-eval evaluates a form in the global environment
+(define global-env init-env)
 
 (define top-level-eval
   (lambda (form)
     ; later we may add things that are not expressions.
-    (eval-exp form init-env)))
+    (eval-exp form global-env)))
 
-(define global-env (lambda () init-env))
+
 ; eval-exp is the main component of the interpreter
 
 (define eval-exp
@@ -366,14 +374,7 @@
                    "Attempt to apply bad procedure: ~s" 
                     proc-value)])))
 
-(define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr list null? assq eq? equal? atom? length list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cddr))
 
-(define init-env         ; for now, our initial global environment only contains 
-  (extend-env            ; procedure names.  Recall that an environment associates
-     *prim-proc-names*   ;  a value (not an expression) with an identifier.
-     (map prim-proc      
-          *prim-proc-names*)
-     (empty-env)))
 
 ; Usually an interpreter must define each 
 ; built-in procedure individually.  We are "cheating" a little bit.
