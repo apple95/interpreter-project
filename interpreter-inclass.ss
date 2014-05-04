@@ -332,12 +332,13 @@
 							id)))))]
       [let-exp (ids exprs bodies)
 	       (let ((envir (extend-env ids (map (lambda (x) (eval-exp x env)) exprs) env)))
-		 (let loop ([bodies bodies])
-		   (if (null? (cdr bodies))
-		       (eval-exp (car bodies) envir)
-		       (begin
-			 (eval-exp (car bodies) envir)
-			 (loop (cdr bodies))))))]
+		 (eval-exp-loop bodies envir))]
+      ;;(let loop ([bodies bodies])
+		   ;;(if (null? (cdr bodies))
+		     ;;  (eval-exp (car bodies) envir)
+		       ;;(begin
+			 ;;(eval-exp (car bodies) envir)
+			 ;;(loop (cdr bodies))))))]
     
       [if-else-exp (test then-body else-body)
 	      (if (eval-exp test env) (eval-exp then-body env) (eval-exp else-body env))]
@@ -352,6 +353,13 @@
           (apply-proc proc-value args))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
+;;performs eval exp on all bodies in the current environment
+(define eval-exp-loop
+  (lambda (bodies env)
+    (if (null? (cdr bodies)) (eval-exp (car bodies) env)
+	(begin
+	  (eval-exp (car bodies) env)
+	  (eval-exp-loop (cdr bodies) env)))))
 ; evaluate the list of operands, putting results into a list
 
 (define eval-rands
@@ -368,7 +376,7 @@
       [prim-proc (op) (apply-prim-proc op args)]
       [closure (params body env)
 	       (let ([extended-env (extend-env params args env)])
-		 (eval-exp (car body) extended-env))]
+		 (eval-exp-loop body extended-env))]
 			; You will add other cases
       [else (error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
