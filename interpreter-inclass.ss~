@@ -380,7 +380,6 @@
   
 (define apply-prim-proc
   (lambda (prim-proc args)
-    (display args)
     (case prim-proc
       [(+) (+ (1st args) (2nd args))] ;;needs multiple args
       [(-) (- (1st args) (2nd args))]
