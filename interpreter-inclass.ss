@@ -407,7 +407,7 @@
       [(>=) (>= (1st args) (2nd args))]
       [(car) (car (1st args))]
       [(cdr) (cdr (1st args))]
-      [(list) (apply list args)] ;;needs multiple args
+      [(list) (my-list args)] ;;needs multiple args
       [(null?) (null? (1st args))]
       [(assq) (assq (1st args) (2nd args))]
       [(eq?) (eq? (1st args) (2nd args))]
@@ -446,6 +446,10 @@
             "Bad primitive procedure name: ~s" 
             prim-op)])))
 
+(define my-list
+  (lambda (args)
+    (if (null? args) '()
+	(cons (car args) (my-list (cdr args))))))
 (define rep      ; "read-eval-print" loop.
   (lambda ()
     (display "--> ")
