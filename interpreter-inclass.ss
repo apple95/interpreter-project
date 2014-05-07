@@ -44,6 +44,9 @@
    (test expression?)
    (then-body expression?)
    (else-body expression?))
+  (while-exp
+    (test expression?)
+    (body (list-of expression?)))
   (set!-exp
    (id symbol?)
    (body expression?))
@@ -164,6 +167,9 @@
 	      (if (null? (cdddr datum))
 			 (if-exp (parse-exp (cadr datum)) (parse-exp (caddr datum)))
 			 (if-else-exp (parse-exp (cadr datum)) (parse-exp (caddr datum)) (parse-exp (cadddr datum))))))
+   ((eqv? (car datum) 'while) 
+      (while-exp (parse-exp (cadr datum)) (map parse-exp (cddr datum)))
+   )
 	 ((eqv? (car datum) 'set!)
 	  (cond
 	   ((not (eq? 2 (length (cdr datum)))) (eopl:error 'parse-exp "Invalid set! expression length ~s" datum))
@@ -205,6 +211,7 @@
 	      (list 'if (unparse-exp test) (unparse-exp then-body)))
       (if-else-exp (test then-body else-body)
 	       (list 'if (unparse-exp test) (unparse-exp then-body) (unparse-exp else-body)))
+      (while-exp (test body) (cons (unparse-exp test) (map unparse-exp body)))
       (set!-exp(id body)
 	   (list 'set! id (unparse-exp body)))
   (app-exp (rator rand)
@@ -351,6 +358,7 @@
         (let ([proc-value (eval-exp rator env)]
               [args (eval-rands rands env)])
           (apply-proc proc-value args))]
+      [while-exp (test body) (eval-exp-while-loop test body env)]  
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ;;performs eval exp on all bodies in the current environment
@@ -360,6 +368,23 @@
 	(begin
 	  (eval-exp (car bodies) env)
 	  (eval-exp-loop (cdr bodies) env)))))
+
+(define eval-exp-while-loop
+  (lambda (test bodies env)
+    (letrec ([helper (lambda (test all-body rest-of-body env) 
+      (if (null? (cdr rest-of-body)) 
+      (begin (eval-exp (car rest-of-body) env) 
+             (if (not (equal? #f (eval-exp test env)))
+              (helper test all-body all-body env)
+             )) 
+    (begin
+    (eval-exp (car rest-of-body) env)
+    (helper test all-body (cdr rest-of-body) env))))])
+    (if (not (equal? #f (eval-exp test env)))
+              (helper test bodies bodies env)
+             )
+    )))
+
 ; evaluate the list of operands, putting results into a list
 
 (define eval-rands
