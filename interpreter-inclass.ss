@@ -97,7 +97,12 @@
   [closure
    (params (list-of symbol?))
    (body (list-of expression?))
-   (env environment?)])
+   (env environment?)]
+  [closure-for-lambda-symbol
+    (params (list-of symbol?))
+    (body (list-of expression?))
+    (env environment?)]
+)
 
 
 
@@ -422,6 +427,9 @@
       ]
       [lambda-exp (args body)
 		  (closure args body env)]
+      [lambda-symbol-exp (arg body)
+      (closure-for-lambda-symbol (list arg) body env)
+      ]
       [app-exp (rator rands)
         (let ([proc-value (eval-exp rator env)]
               [args (eval-rands rands env)])
@@ -469,7 +477,10 @@
       [prim-proc (op) (apply-prim-proc op args)]
       [closure (params body env)
 	       (let ([extended-env (extend-env params args env)])
-		 (eval-exp-loop body extended-env))]
+		    (eval-exp-loop body extended-env))]
+      [closure-for-lambda-symbol (params body env)
+         (let ([extended-env (extend-env params (list args) env)])
+        (eval-exp-loop body extended-env))]
 			; You will add other cases
       [else (error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
