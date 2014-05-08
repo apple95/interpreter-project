@@ -18,6 +18,9 @@
   (lambda-symbol-exp
     (id symbol?)
     (body (list-of expression?)))
+  (lambda-pair-exp
+   (id pair?)
+   (body (list-of expression?)))
   (lambda-exp
      (id (list-of symbol?))
     (body (list-of expression?)))
@@ -53,15 +56,23 @@
   (lit-exp 
    (data lit-exp?))
   (begin-exp
-   (bodies (list-of expression?))) ;;needs to be done in parser, then  it will loop eval-exp on all of the arguments in syntax-expand
+   (bodies (list-of expression?))) 
   (cond-exp
-   (clauses (list-of (list-of expression?))))
+   (clauses (list-of clause?)))
+  (case-exp
+   (key expression?)
+   (clauses list?))
   (else-exp
-   (bodies (list-of expression?))) ;;will be translated to begin
+   (bodies (list-of expression?)))
+  (or-exp
+   (bodies (list-of expression?)))
   (app-exp
     (rator expression?)
     (rand (list-of expression?))))
 
+(define clause?
+  (lambda (x)
+    (or (expression? x) (and (expression? (car x)) ((list-of expression?) (cdr x))))))
 	
 ; datatype for procedures.  At first there is only one
 ; kind of procedure, but more kinds will be added later.
@@ -138,7 +149,7 @@
 				   (lambda-exp (cadr datum) (map parse-exp (cddr datum))) 
 				   (eopl:error 'parse-exp "Invaild arguments in lambda expression. Must be symbols: ~s" datum))
 			       (if (not (and-pred-imlist (cadr datum) symbol?)) (eopl:error 'parse-exp "Invalid arguments in lambda expression. Must be symbols: ~s" datum)
-				   (lambda-exp (cadr datum) (map parse-exp (cddr datum)))))
+				   (lambda-pair-exp (cadr datum) (map parse-exp (cddr datum)))))
 		    (eopl:error 'parse-exp "Invaild arguments in lambda expression. Must be symbols: ~s" datum)))))
        ((eqv? (car datum) 'let)
 	(if (symbol? (cadr datum))
@@ -178,10 +189,14 @@
 	 ((eqv? (car datum) 'while) 
 	  (while-exp (parse-exp (cadr datum)) (map parse-exp (cddr datum)))
 	  )
+	 ((eqv? (car datum) 'begin)
+	  (begin-exp (map parse-exp (cdr datum))))
+	 ((eqv? (car datum) 'or)
+	  (or-exp (map parse-exp (cdr datum))))
 	 ((eqv? (car datum) 'cond)
-	  	(cond-helper datum))
-	 
-	  (cond-exp (map (lambda (x) (map 
+	  	(cond-exp (cond-helper (cdr datum))))
+	 ((eqv? (car datum) 'case)
+	  (case-exp (parse-exp (cadr datum)) (map (lambda (x) (if (eqv? (car x) 'else) (else-exp (map parse-exp (cdr x)))(list (car x) (map parse-exp (cdr x))))) (cddr datum))))
 	 ((eqv? (car datum) 'set!)
 	  (cond
 	   ((not (eq? 2 (length (cdr datum)))) (eopl:error 'parse-exp "Invalid set! expression length ~s" datum))
@@ -206,13 +221,10 @@
 	(if (not (andmap list? datum)) (eopl:error 'parse-exp "Invalid cond expression, clause not a list ~s" datum)
 	    (let ((x (car datum)))
 	      (if (eq? (car x) 'else)
-		  (if (not (null? (cdr x))) (eopl:error 'parse-exp "Invalid else statement in cond expression ~s" datum) 
-		      (if (not (andmap list?  (cdr x))) (eopl:error 'parse-exp "Invalid bodies in else statement, not expressions ~s" datum) (list 'else (map parse-exp x))))
-		  (if (not (expression? (car x))) (eopl:error 'parse-exp "Invaild test in cond, not an expression ~s" datum)
-		      (if (not (list-of expression (cdr x))(eopl:error 'parse-exp "Invalid bodies in test statement, not expressions ~s" datum) 
-			       (begin
-				 (map parse-exp x)
-				 (cond-helper (cdr datum))))))))))))
+		  (if (not (null? (cdr datum))) (eopl:error 'parse-exp "Invalid else statement in cond expression ~s" datum) 
+		      (list (else-exp (map parse-exp (cdr x)))))
+		  (append (list (map parse-exp x))
+		    (cond-helper (cdr datum)))))))))
 ;;
 (define unparse-exp ; an inverse for parse-exp
   (lambda (exp)
@@ -315,19 +327,44 @@
     (cases expression exp
 	   (var-exp (id) exp)
 	   (lit-exp (data) exp)
-	   (lambda-exp (id body) (lambda-exp id (map expand-lets body)))
-	   (let-exp (ids exprs body) (app-exp (expand-lets (lambda-exp ids body)) (map expand-lets exprs)))
-	   (if-exp (bool body) (if-exp (expand-lets bool) (expand-lets body)))
-	   (if-else-exp (bool body1 body2) (if-else-exp (expand-lets bool) (expand-lets body1) (expand-lets body2)))
-	   (app-exp (rator rand) (app-exp (expand-lets rator) (map expand-lets rand))))))
+	   (lambda-exp (id body) (lambda-exp id (map syntax-expand body)))
+	   (lambda-symbol-exp (id body) (lambda-symbol-exp id (map syntax-expand body)))
+	   (named-let-exp (id vars exprs body) exp)
+	   (let-exp (ids exprs body) (app-exp (syntax-expand (lambda-exp ids body)) (map syntax-expand exprs)))
+	   (let*-exp (ids exprs body) (syntax-expand (let-exp ids exprs body)))
+	   (letrec-exp (methods body) exp)
+	   (if-exp (bool body) (if-exp (syntax-expand bool) (syntax-expand body)))
+	   (if-else-exp (bool body1 body2) (if-else-exp (syntax-expand bool) (syntax-expand body1) (syntax-expand body2)))
+	   (begin-exp (bodies) (app-exp (lambda-exp '() (map syntax-expand bodies)) '()))
+	   (cond-exp (clauses) (syntax-cond-helper clauses))
+	   (case-exp (key clauses) (syntax-case-helper key clauses))
+	   (while-exp (test body) exp)
+	   (else-exp (bodies) (app-exp (lambda-exp '() (map syntax-expand bodies)) '()))
+	   (set!-exp (id body) exp)
+	   (or-exp (bodies) (syntax-or-helper bodies))
+	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand))))))
+
 
 
 ; To be added later
-
-
-
-
-
+(define syntax-cond-helper
+  (lambda (ls)
+    (if (null? ls) (void)
+	(if (expression? (car ls)) (syntax-expand (car ls))
+	    (if-else-exp (syntax-expand (1st (car ls))) (syntax-expand (2nd (car ls))) (syntax-cond-helper (cdr ls)))))))
+(define syntax-case-helper
+  (lambda (key ls)
+    (if (null? ls) (void)
+	(let ((x (car ls)))
+	  (if (expression? x) (syntax-expand (car ls))
+	      (let ((y (list (lit-exp (1st x)) key)))
+	    (if-else-exp (app-exp (var-exp 'contains?) y) (syntax-expand (begin-exp (2nd x))) (syntax-case-helper key (cdr ls)))))))))
+(define syntax-or-helper
+  (lambda (ls)
+    (if (null? ls) (lit-exp #f)
+	(let ((x (syntax-expand (car ls))))
+	(if (null? (cdr ls)) x
+        (if-else-exp x x (syntax-or-helper (cdr ls))))))))
 
 
 
@@ -337,7 +374,7 @@
 ;   INTERPRETER    |
 ;                   |
 ;-------------------+
-(define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr list null? assq eq? equal? atom? length list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cddr))
+(define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr list null? assq eq? eqv? equal? atom? length list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cddr contains? quotient apply map))
 
 (define init-env         ; for now, our initial global environment only contains 
   (extend-env            ; procedure names.  Recall that an environment associates
@@ -470,6 +507,7 @@
       [(null?) (null? (1st args))]
       [(assq) (assq (1st args) (2nd args))]
       [(eq?) (eq? (1st args) (2nd args))]
+      [(eqv?) (eqv? (1st args) (2nd args))]
       [(equal?) (equal? (1st args) (2nd args))]
       [(atom?) (atom? (1st args))]
       [(length) (length (1st args))]
@@ -486,7 +524,7 @@
       [(symbol?) (symbol? (1st args))]
       [(set-car!) (set-car! (1st args) (2nd args))]
       [(set-cdr!) (set-cdr! (1st args) (2nd args))]
-      [(vector-set!) (vector-set! (1st args) (2nd args))]
+      [(vector-set!) (vector-set! (1st args) (2nd args) (3rd args))]
       [(display) (display (1st args))]
       [(newline) (newline)]
       [(caar) (caar (1st args))]
@@ -501,11 +539,32 @@
       [(cdadr) (cdadr (1st args))]
       [(cddar) (cddar (1st args))]
       [(cdddr) (cdddr (1st args))]
-      [(map)   (map (1st args) (2nd args))] ;;need to implement these
-      [(apply) (apply (1st args) (cddr args))] ;;need to implement these
+      [(contains?) [my-contains (1st args) (2nd args)]]
+      [(quotient) (apply quotient args)]
+      [(map)   (apply my-map (1st args) (cdr args))]
+      [(apply) (apply (1st args) (cddr args))] ;;need to implement this
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
             prim-op)])))
+(define my-map
+  (lambda (f ls . more)
+    (if (null? more)
+        (let map1 ((ls ls))
+          (if (null? ls)
+              '()
+              (cons (f (car ls))
+                    (map1 (cdr ls)))))
+        (let map-more ((ls ls) (more more))
+          (if (null? ls)
+              '()
+              (cons (apply f (car ls) (my-map car more))
+                    (map-more (cdr ls)
+                              (my-map cdr more))))))))
+(define my-contains
+  (lambda (ls obj)
+    (if (null? ls) #f
+	(if (eqv? (car ls) obj) #t
+	    (my-contains (cdr ls) obj)))))
 (define my-list
   (lambda (args)
     (if (null? args) '()
@@ -517,7 +576,7 @@
     (let ([input (read)])
         (if (equal? input '(exit))
         (display "")   ;Exits the rep loop without printing anything
-        (let ([answer (top-level-eval (parse-exp input))])
+        (let ([answer (top-level-eval (syntax-expand (parse-exp input)))])
       ;; TODO: are there answers that should display differently?
         (eopl:pretty-print answer) (newline)
         (rep)
@@ -531,4 +590,4 @@
 
 
 (define eval-one-exp
-  (lambda (x) (top-level-eval (parse-exp x))))
+  (lambda (x) (top-level-eval (syntax-expand (parse-exp x)))))

@@ -18,6 +18,9 @@
   (lambda-symbol-exp
     (id symbol?)
     (body (list-of expression?)))
+  (lambda-pair-exp
+   (id pair?)
+   (body (list-of expression?)))
   (lambda-exp
      (id (list-of symbol?))
     (body (list-of expression?)))
@@ -104,6 +107,13 @@
     (env environment?)]
 )
 
+(define (cell val)
+  (cons val 'its-a-cell))
+(define cell-ref car)
+(define set-cell! set-car!)
+(define (cell? x)
+  (and (pair? x) (eqv? (cdr x) 'its-a-cell)))
+
 
 
 ;-------------------+
@@ -151,7 +161,7 @@
 				   (lambda-exp (cadr datum) (map parse-exp (cddr datum))) 
 				   (eopl:error 'parse-exp "Invaild arguments in lambda expression. Must be symbols: ~s" datum))
 			       (if (not (and-pred-imlist (cadr datum) symbol?)) (eopl:error 'parse-exp "Invalid arguments in lambda expression. Must be symbols: ~s" datum)
-				   (lambda-exp (cadr datum) (map parse-exp (cddr datum)))))
+				   (lambda-pair-exp (cadr datum) (map parse-exp (cddr datum)))))
 		    (eopl:error 'parse-exp "Invaild arguments in lambda expression. Must be symbols: ~s" datum)))))
        ((eqv? (car datum) 'let)
 	(if (symbol? (cadr datum))
@@ -300,7 +310,7 @@
 	     (if (number? list-index-r)
 		 (+ 1 list-index-r)
 		 #f))))))
-
+;;apply-env-ref
 (define apply-env
   (lambda (env sym succeed fail) ; succeed and fail are procedures applied if the var is or isn't found, respectively.
     (cases environment env
@@ -314,9 +324,12 @@
 
 
 
+;;(define apply-env
+  ;;(lambda (env var)
+    ;;(deref (apply-env-ref env var))))
 
-
-
+;;(define deref cell-ref)
+;;(define set-ref! set-cell!)
 
 
 ;-----------------------+
@@ -549,11 +562,25 @@
       [(cdddr) (cdddr (1st args))]
       [(contains?) [my-contains (1st args) (2nd args)]]
       [(quotient) (apply quotient args)]
-      [(map)   (map (1st args) (2nd args))] ;;need to implement these
-      [(apply) (apply (1st args) (cddr args))] ;;need to implement these
+      [(map)   (apply my-map (1st args) (cdr args))]
+      [(apply) (apply (1st args) (cddr args))] ;;need to implement this
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
             prim-op)])))
+(define my-map
+  (lambda (f ls . more)
+    (if (null? more)
+        (let map1 ((ls ls))
+          (if (null? ls)
+              '()
+              (cons (f (car ls))
+                    (map1 (cdr ls)))))
+        (let map-more ((ls ls) (more more))
+          (if (null? ls)
+              '()
+              (cons (apply f (car ls) (my-map car more))
+                    (map-more (cdr ls)
+                              (my-map cdr more))))))))
 (define my-contains
   (lambda (ls obj)
     (if (null? ls) #f
