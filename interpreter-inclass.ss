@@ -232,7 +232,7 @@
   (lambda (ls)
     (and (list? ls) (andmap (lambda (a) (and (list? a) (eq? 2 (length a)) (symbol? (car a)))) ls))))
 (define cond-helper
-  (lambda (datum)eng
+  (lambda (datum)
     (if (not (null? datum))
 	(if (not (andmap list? datum)) (eopl:error 'parse-exp "Invalid cond expression, clause not a list ~s" datum)
 	    (let ((x (car datum)))

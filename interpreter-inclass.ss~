@@ -105,6 +105,10 @@
     (params (list-of symbol?))
     (body (list-of expression?))
     (env environment?)]
+  [closure-for-lambda-pair
+   (params pair?)
+   (body (list-of expression?))
+   (env environment?)]
 )
 
 (define (cell val)
@@ -228,7 +232,7 @@
   (lambda (ls)
     (and (list? ls) (andmap (lambda (a) (and (list? a) (eq? 2 (length a)) (symbol? (car a)))) ls))))
 (define cond-helper
-  (lambda (datum)
+  (lambda (datum)eng
     (if (not (null? datum))
 	(if (not (andmap list? datum)) (eopl:error 'parse-exp "Invalid cond expression, clause not a list ~s" datum)
 	    (let ((x (car datum)))
@@ -295,7 +299,10 @@
 
 (define extend-env
   (lambda (syms vals env)
-    (extended-env-record syms vals env)))
+    (if (not (list? syms))
+	(let ((ls (pair-to-list syms)))
+	(extended-env-record ls (adjust-vals-for-length (length ls) vals) env))
+	(extended-env-record syms vals env))))
 
 (define list-find-position
   (lambda (sym los)
@@ -310,6 +317,14 @@
 	     (if (number? list-index-r)
 		 (+ 1 list-index-r)
 		 #f))))))
+(define pair-to-list
+ (lambda (pair)
+   (if (not (pair? (cdr pair))) (list (car pair) (cdr pair))
+       (cons (car pair) (pair-to-list (cdr pair))))))
+(define adjust-vals-for-length
+  (lambda (l vals)
+    (if (eq? l 1) (list vals)
+	(cons (car vals) (adjust-vals-for-length (- l 1) (cdr vals))))))
 ;;apply-env-ref
 (define apply-env
   (lambda (env sym succeed fail) ; succeed and fail are procedures applied if the var is or isn't found, respectively.
@@ -344,6 +359,7 @@
 	   (lit-exp (data) exp)
 	   (lambda-exp (id body) (lambda-exp id (map syntax-expand body)))
 	   (lambda-symbol-exp (id body) (lambda-symbol-exp id (map syntax-expand body)))
+	   (lambda-pair-exp (id body) (lambda-pair-exp id (map syntax-expand body)))
 	   (named-let-exp (id vars exprs body) exp)
 	   (let-exp (ids exprs body) (app-exp (syntax-expand (lambda-exp ids body)) (map syntax-expand exprs)))
 	   (let*-exp (ids exprs body) (syntax-expand (let-exp ids exprs body)))
@@ -443,6 +459,8 @@
       [lambda-symbol-exp (arg body)
       (closure-for-lambda-symbol (list arg) body env)
       ]
+      [lambda-pair-exp (arg body)
+		       (closure-for-lambda-pair arg body env)]
       [app-exp (rator rands)
         (let ([proc-value (eval-exp rator env)]
               [args (eval-rands rands env)])
@@ -494,6 +512,9 @@
       [closure-for-lambda-symbol (params body env)
          (let ([extended-env (extend-env params (list args) env)])
         (eval-exp-loop body extended-env))]
+      [closure-for-lambda-pair (params body env)
+			       (let ([extended-env (extend-env params args env)])
+				 (eval-exp-loop body extended-env))]
 			; You will add other cases
       [else (error 'apply-proc
                    "Attempt to apply bad procedure: ~s" 
@@ -562,23 +583,28 @@
       [(cdddr) (cdddr (1st args))]
       [(contains?) [my-contains (1st args) (2nd args)]]
       [(quotient) (apply quotient args)]
-      [(map)   (apply my-map (1st args) (cdr args))]
-      [(apply) (apply (1st args) (cddr args))] ;;need to implement this
+      [(map)   (my-map (1st args) (cdr args))]
+      [(apply) (apply-proc (1st args) (combine-args (cdr args)))] ;;need to implement this
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
             prim-op)])))
+(define combine-args
+  (lambda (args)
+    (if (null? args) '()
+	(if (null? (cdr args)) (car args)
+	    (cons (car args) (combine-args))))))
 (define my-map
   (lambda (f ls . more)
     (if (null? more)
-        (let map1 ((ls ls))
+        (let map1 ((ls (car ls)))
           (if (null? ls)
               '()
-              (cons (f (car ls))
+              (cons (apply-proc f (list (car ls)))
                     (map1 (cdr ls)))))
-        (let map-more ((ls ls) (more more))
+        (let map-more ((ls (car ls)) (more more))
           (if (null? ls)
               '()
-              (cons (apply f (car ls) (my-map car more))
+              (cons (apply-proc f (list (car ls)) (my-map car more))
                     (map-more (cdr ls)
                               (my-map cdr more))))))))
 (define my-contains
