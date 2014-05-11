@@ -364,7 +364,8 @@
 	   (named-let-exp (id vars exprs body) exp)
 	   (let-exp (ids exprs body) (app-exp (syntax-expand (lambda-exp ids body)) (map syntax-expand exprs)))
 	   (let*-exp (ids exprs body) (syntax-expand (let-exp ids exprs body)))
-	   (letrec-exp (methods body) exp)
+	   (letrec-exp (methods body) 
+		       (syntax-expand (letrec-helper methods '() '() (map syntax-expand body))))
 	   (if-exp (bool body) (if-exp (syntax-expand bool) (syntax-expand body)))
 	   (if-else-exp (bool body1 body2) (if-else-exp (syntax-expand bool) (syntax-expand body1) (syntax-expand body2)))
 	   (begin-exp (bodies) (app-exp (lambda-exp '() (map syntax-expand bodies)) '()))
@@ -376,8 +377,19 @@
 	   (or-exp (bodies) (syntax-or-helper bodies))
 	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand))))))
 
-
-
+(define letrec-to-set-converter
+  (lambda (names vals body)
+    (if (null? names) (let-exp '() '()  body)
+    (let ((l (letrec-to-set-converter (cdr names) (cdr vals) body)))
+      (let-exp '(temp) (list (car vals)) (list (set!-exp (car names) (var-exp 'temp)) l))))))
+(define letrec-helper
+  (lambda (methods names vals body)
+    (if (not (null? methods))
+	(let ((m (cdar methods)))
+	(letrec-helper (cdr methods) (cons (cadar m) names) (cons (caadr m) vals) body))
+	(if (not (null? names))
+	    (let-exp names vals (list (letrec-to-set-converter names vals body)))))))
+	
 ; To be added later
 (define syntax-cond-helper
   (lambda (ls)
@@ -413,8 +425,7 @@
      *prim-proc-names*   ;  a value (not an expression) with an identifier.
      (map prim-proc      
           *prim-proc-names*)
-     (empty-env)))
-	 
+     (empty-env)))	 
 
 
 ; top-level-eval evaluates a form in the global environment
