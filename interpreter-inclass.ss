@@ -301,8 +301,8 @@
   (lambda (syms vals env)
     (if (not (list? syms))
 	(let ((ls (pair-to-list syms)))
-	(extended-env-record ls (adjust-vals-for-length (length ls) vals) env))
-	(extended-env-record syms vals env))))
+	(extended-env-record ls (map cell (adjust-vals-for-length (length ls) vals)) env))
+	(extended-env-record syms (map cell vals) env))))
 
 (define list-find-position
   (lambda (sym los)
@@ -321,12 +321,13 @@
  (lambda (pair)
    (if (not (pair? (cdr pair))) (list (car pair) (cdr pair))
        (cons (car pair) (pair-to-list (cdr pair))))))
+
 (define adjust-vals-for-length
   (lambda (l vals)
     (if (eq? l 1) (list vals)
 	(cons (car vals) (adjust-vals-for-length (- l 1) (cdr vals))))))
-;;apply-env-ref
-(define apply-env
+
+(define apply-env-ref
   (lambda (env sym succeed fail) ; succeed and fail are procedures applied if the var is or isn't found, respectively.
     (cases environment env
       (empty-env-record ()
@@ -335,16 +336,16 @@
 	(let ((pos (list-find-position sym syms)))
       	  (if (number? pos)
 	      (succeed (list-ref vals pos))
-	      (apply-env env sym succeed fail)))))))
+	      (apply-env-ref env sym succeed fail)))))))
 
 
 
-;;(define apply-env
-  ;;(lambda (env var)
-    ;;(deref (apply-env-ref env var))))
+(define apply-env
+  (lambda (env var succeed fail)
+    (deref (apply-env-ref env var succeed fail))))
 
-;;(define deref cell-ref)
-;;(define set-ref! set-cell!)
+(define deref cell-ref)
+(define set-ref! set-cell!)
 
 
 ;-----------------------+
@@ -465,6 +466,13 @@
         (let ([proc-value (eval-exp rator env)]
               [args (eval-rands rands env)])
           (apply-proc proc-value args))]
+      [set!-exp (id exp)
+		     (set-ref!
+		      (apply-env-ref env id (lambda (x) x) 
+				 (lambda () (eopl:error 'apply-env ; procedure to call if id not in env
+							"variable not found in environment: ~s"
+							id)))
+		      (eval-exp exp env))]
       [while-exp (test body) (eval-exp-while-loop test body env)]  
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
