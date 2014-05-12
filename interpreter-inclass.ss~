@@ -418,7 +418,7 @@
 ;   INTERPRETER    |
 ;                   |
 ;-------------------+
-(define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr list null? assq eq? eqv? equal? atom? length list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cddr contains? quotient apply map))
+(define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr list null? assq eq? eqv? equal? atom? length list-tail list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cddr contains? quotient apply map))
 
 (define init-env         ; for now, our initial global environment only contains 
   (extend-env            ; procedure names.  Recall that an environment associates
@@ -575,6 +575,7 @@
       [(list->vector) (list->vector (1st args))]
       [(list?) (list? (1st args))]
       [(pair?) (pair? (1st args))]
+      [(list-tail) (list-tail (1st args) (2nd args))]
       [(procedure?) (or (procedure? (1st args)) (proc-val? (1st args)))]
       [(vector->list) (vector->list (1st args))]
       [(vector) (apply vector args)] ;;needs multiple args
