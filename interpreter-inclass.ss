@@ -77,10 +77,6 @@
 	
 ; datatype for procedures.  At first there is only one
 ; kind of procedure, but more kinds will be added later.
-
-
-	 
-
 	
 ;; environment type definitions
 
@@ -111,6 +107,11 @@
    (body (list-of expression?))
    (env environment?)]
 )
+
+(define-datatype define-glb define-glb?
+  [define-exp
+    (id symbol?)
+    (body expression?)])
 
 (define (cell val)
   (cons val 'its-a-cell))
@@ -219,6 +220,8 @@
 	   ((not (eq? 2 (length (cdr datum)))) (eopl:error 'parse-exp "Invalid set! expression length ~s" datum))
 	   ((not (symbol? (cadr datum))) (eopl:error 'parse-exp "Invalid first arguemtn for set! expression ~s" datum))
 	  (else (set!-exp (cadr datum) (parse-exp (caddr datum))))))
+	 ((eqv? (car datum) 'define)
+	  (define-exp (cadr datum) (syntax-expand (parse-exp (caddr datum)))))
          (else
 	   (app-exp
            (parse-exp (car datum))
@@ -343,7 +346,9 @@
 
 (define apply-env
   (lambda (env var succeed fail)
-    (deref (apply-env-ref env var succeed fail))))
+    (let ((x (apply-env-ref env var succeed fail)))
+      (if (proc-val? x) x
+      (deref x)))))
 
 (define deref cell-ref)
 (define set-ref! set-cell!)
@@ -356,6 +361,7 @@
 ;-----------------------+
 (define syntax-expand
   (lambda (exp)
+    (if (define-glb? exp) exp
     (cases expression exp
 	   (var-exp (id) exp)
 	   (lit-exp (data) exp)
@@ -377,7 +383,7 @@
 	   (else-exp (bodies) (app-exp (lambda-exp '() (map syntax-expand bodies)) '()))
 	   (set!-exp (id body) exp)
 	   (or-exp (bodies) (syntax-or-helper bodies))
-	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand))))))
+	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand)))))))
 
 (define letrec-to-set-converter
   (lambda (names vals body)
@@ -422,21 +428,29 @@
 ;-------------------+
 (define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr list null? assq eq? eqv? equal? atom? length list-tail list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cddr contains? quotient apply map))
 
-(define init-env         ; for now, our initial global environment only contains 
+(define make-init-env         ; for now, our initial global environment only contains 
+  (lambda()
   (extend-env            ; procedure names.  Recall that an environment associates
      *prim-proc-names*   ;  a value (not an expression) with an identifier.
      (map prim-proc      
           *prim-proc-names*)
-     (empty-env)))	 
+     (empty-env))))	 
 
 
 ; top-level-eval evaluates a form in the global environment
-(define global-env init-env)
+(define global-env (make-init-env))
 
 (define top-level-eval
   (lambda (form)
     ; later we may add things that are not expressions.
-    (eval-exp form global-env)))
+    (if (define-glb? form)
+	(cases define-glb form
+	       [define-exp (id body)
+		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env))])
+    (eval-exp form global-env))))
+
+(define reset-global-env 
+ (lambda () (set! global-env (make-init-env))))
 
 
 ; eval-exp is the main component of the interpreter
