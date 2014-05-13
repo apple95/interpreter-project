@@ -172,7 +172,7 @@
 	    (if (> (length (cdr datum)) 2)
 		(if (test-let-vars? (caddr datum))
 		    (named-let-exp (cadr datum) (map (lambda (x) (car x)) (caddr datum)) (map (lambda (x) (parse-exp (cadr x))) (caddr datum))
-		     (map parse-exp (cddr datum)))
+		     (map parse-exp (cdddr datum)))
 		    (eopl:error 'parse-exp "Invaild variables in named let expression. ~s" datum))
 		(eopl:error 'parse-exp "Invalid length of named-let expression. ~s" datum))
 	    (if (> (length (cdr datum)) 1)
@@ -361,7 +361,8 @@
 	   (lambda-exp (id body) (lambda-exp id (map syntax-expand body)))
 	   (lambda-symbol-exp (id body) (lambda-symbol-exp id (map syntax-expand body)))
 	   (lambda-pair-exp (id body) (lambda-pair-exp id (map syntax-expand body)))
-	   (named-let-exp (id vars exprs body) exp)
+	   (named-let-exp (id vars exprs body)
+			  		    (syntax-expand (letrec-exp (list (app-exp (var-exp id) (list (lambda-exp vars body)))) (list (app-exp (var-exp id) exprs)))))
 	   (let-exp (ids exprs body) (app-exp (syntax-expand (lambda-exp ids body)) (map syntax-expand exprs)))
 	   (let*-exp (ids exprs body) (syntax-expand (let-exp ids exprs body)))
 	   (letrec-exp (methods body) 
@@ -454,12 +455,6 @@
       [let-exp (ids exprs bodies)
 	       (let ((envir (extend-env ids (map (lambda (x) (eval-exp x env)) exprs) env)))
 		 (eval-exp-loop bodies envir))]
-      ;;(let loop ([bodies bodies])
-		   ;;(if (null? (cdr bodies))
-		     ;;  (eval-exp (car bodies) envir)
-		       ;;(begin
-			 ;;(eval-exp (car bodies) envir)
-			 ;;(loop (cdr bodies))))))]
     
       [if-else-exp (test then-body else-body)
 	      (if (eval-exp test env) (eval-exp then-body env) (eval-exp else-body env))]
