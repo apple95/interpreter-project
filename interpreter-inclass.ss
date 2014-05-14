@@ -38,6 +38,7 @@
    (exprs (list-of expression?))
    (body (list-of expression?)))
   (letrec-exp
+   (ids (list-of symbol?))
    (methods (list-of expression?))
    (body (list-of expression?)))
   (if-exp
@@ -76,10 +77,6 @@
 	
 ; datatype for procedures.  At first there is only one
 ; kind of procedure, but more kinds will be added later.
-
-
-	 
-
 	
 ;; environment type definitions
 
@@ -110,6 +107,11 @@
    (body (list-of expression?))
    (env environment?)]
 )
+
+(define-datatype define-glb define-glb?
+  [define-exp
+    (id symbol?)
+    (body expression?)])
 
 (define (cell val)
   (cons val 'its-a-cell))
@@ -193,9 +195,9 @@
 	 ((eqv? (car datum) 'letrec)
 	  (if (> (length (cdr datum)) 1)
 		(if (test-let-vars? (cadr datum))
-		    (letrec-exp (map parse-exp (cadr datum)) (map parse-exp (cddr datum)))
-		    (eopl:error 'parse-exp "Invaild variables in let* expression. ~s" datum))
-		(eopl:error 'parse-exp "Invalid length of let* expression. ~s" datum))
+		    (letrec-exp (map car (cadr datum)) (map (lambda (x) (parse-exp (cadr x))) (cadr datum)) (map parse-exp (cddr datum)))
+		    (eopl:error 'parse-exp "Invaild variables in letrec expression. ~s" datum))
+		(eopl:error 'parse-exp "Invalid length of letrec expression. ~s" datum))
 	  )
 	 ((eqv? (car datum) 'if)
 	  (if (not (or (eq? 2 (length (cdr datum))) (eq? 3 (length (cdr datum))))) (eopl:error 'parse-exp "Invaild if statement, incorrect number of bodies ~s" datum)
@@ -218,6 +220,8 @@
 	   ((not (eq? 2 (length (cdr datum)))) (eopl:error 'parse-exp "Invalid set! expression length ~s" datum))
 	   ((not (symbol? (cadr datum))) (eopl:error 'parse-exp "Invalid first arguemtn for set! expression ~s" datum))
 	  (else (set!-exp (cadr datum) (parse-exp (caddr datum))))))
+	 ((eqv? (car datum) 'define)
+	  (define-exp (cadr datum) (syntax-expand (parse-exp (caddr datum)))))
          (else
 	   (app-exp
            (parse-exp (car datum))
@@ -258,7 +262,7 @@
 		    (append (list 'let id (let-unparse-helper ids exprs))  (map unparse-exp body)))
       (let*-exp (ids exprs body)
 		(append (list 'let* (let-unparse-helper ids exprs)) (map unparse-exp body)))
-      (letrec-exp (methods body)
+      (letrec-exp (ids methods body)
 		 (append (list 'letrec (map unparse-exp methods)) (map unparse-exp body)))
       (if-exp (test then-body) 
 	      (list 'if (unparse-exp test) (unparse-exp then-body)))
@@ -342,7 +346,9 @@
 
 (define apply-env
   (lambda (env var succeed fail)
-    (deref (apply-env-ref env var succeed fail))))
+    (let ((x (apply-env-ref env var succeed fail)))
+      (if (proc-val? x) x
+      (deref x)))))
 
 (define deref cell-ref)
 (define set-ref! set-cell!)
@@ -355,17 +361,19 @@
 ;-----------------------+
 (define syntax-expand
   (lambda (exp)
+    (if (define-glb? exp) exp
     (cases expression exp
 	   (var-exp (id) exp)
 	   (lit-exp (data) exp)
 	   (lambda-exp (id body) (lambda-exp id (map syntax-expand body)))
 	   (lambda-symbol-exp (id body) (lambda-symbol-exp id (map syntax-expand body)))
 	   (lambda-pair-exp (id body) (lambda-pair-exp id (map syntax-expand body)))
-	   (named-let-exp (id vars exprs body) (syntax-expand (app-exp (letrec-exp (list (app-exp (var-exp id) (list (lambda-exp vars body)))) (list (var-exp id))) exprs)))
+	   (named-let-exp (id vars exprs body)
+			  		    (syntax-expand (letrec-exp (list id) (list (lambda-exp vars body)) (list (app-exp (var-exp id) exprs)))))
 	   (let-exp (ids exprs body) (app-exp (syntax-expand (lambda-exp ids body)) (map syntax-expand exprs)))
 	   (let*-exp (ids exprs body) (syntax-expand (let-exp ids exprs body)))
-	   (letrec-exp (methods body) 
-		       (syntax-expand (letrec-helper methods '() '() (map syntax-expand body))))
+	   (letrec-exp (ids methods body) 
+		       (syntax-expand (let-exp ids methods (list (letrec-to-set-converter ids methods (map syntax-expand body))))))
 	   (if-exp (bool body) (if-exp (syntax-expand bool) (syntax-expand body)))
 	   (if-else-exp (bool body1 body2) (if-else-exp (syntax-expand bool) (syntax-expand body1) (syntax-expand body2)))
 	   (begin-exp (bodies) (app-exp (lambda-exp '() (map syntax-expand bodies)) '()))
@@ -375,7 +383,7 @@
 	   (else-exp (bodies) (app-exp (lambda-exp '() (map syntax-expand bodies)) '()))
 	   (set!-exp (id body) exp)
 	   (or-exp (bodies) (syntax-or-helper bodies))
-	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand))))))
+	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand)))))))
 
 (define letrec-to-set-converter
   (lambda (names vals body)
@@ -418,23 +426,31 @@
 ;   INTERPRETER    |
 ;                   |
 ;-------------------+
-(define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr list null? assq eq? eqv? equal? atom? length list-tail list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cddr contains? quotient apply map))
+(define *prim-proc-names* '(+ - * /  add1 sub1 zero? not cons = and < > <= >= car cdr append list null? assq eq? eqv? equal? atom? length list-tail list->vector list? pair? procedure? vector vector->list make-vector vector-ref vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cddr contains? quotient apply map))
 
-(define init-env         ; for now, our initial global environment only contains 
+(define make-init-env         ; for now, our initial global environment only contains 
+  (lambda()
   (extend-env            ; procedure names.  Recall that an environment associates
      *prim-proc-names*   ;  a value (not an expression) with an identifier.
      (map prim-proc      
           *prim-proc-names*)
-     (empty-env)))	 
+     (empty-env))))	 
 
 
 ; top-level-eval evaluates a form in the global environment
-(define global-env init-env)
+(define global-env (make-init-env))
 
 (define top-level-eval
   (lambda (form)
     ; later we may add things that are not expressions.
-    (eval-exp form global-env)))
+    (if (define-glb? form)
+	(cases define-glb form
+	       [define-exp (id body)
+		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env))])
+    (eval-exp form global-env))))
+
+(define reset-global-env 
+ (lambda () (set! global-env (make-init-env))))
 
 
 ; eval-exp is the main component of the interpreter
@@ -454,12 +470,6 @@
       [let-exp (ids exprs bodies)
 	       (let ((envir (extend-env ids (map (lambda (x) (eval-exp x env)) exprs) env)))
 		 (eval-exp-loop bodies envir))]
-      ;;(let loop ([bodies bodies])
-		   ;;(if (null? (cdr bodies))
-		     ;;  (eval-exp (car bodies) envir)
-		       ;;(begin
-			 ;;(eval-exp (car bodies) envir)
-			 ;;(loop (cdr bodies))))))]
     
       [if-else-exp (test then-body else-body)
 	      (if (eval-exp test env) (eval-exp then-body env) (eval-exp else-body env))]
@@ -564,6 +574,7 @@
       [(>=) (>= (1st args) (2nd args))]
       [(car) (car (1st args))]
       [(cdr) (cdr (1st args))]
+      [(append) (my-append args)]
       [(list) (my-list args)] ;;needs multiple args
       [(null?) (null? (1st args))]
       [(assq) (assq (1st args) (2nd args))]
@@ -627,11 +638,31 @@
               (cons (apply-proc f (list (car ls)) (my-map car more))
                     (map-more (cdr ls)
                               (my-map cdr more))))))))
+
 (define my-contains
   (lambda (ls obj)
     (if (null? ls) #f
 	(if (eqv? (car ls) obj) #t
 	    (my-contains (cdr ls) obj)))))
+
+(define my-append
+  (lambda (args)
+    (cond [(null? args) '()]
+          [(null? (car args)) (my-append (cdr args))]
+          [else (my-append-helper (car args) (my-append (cdr args)))]
+    )
+  )
+)
+
+(define my-append-helper
+  (lambda (ls ls2)
+    (if (null? ls) 
+      ls2
+      (cons (car ls) (my-append-helper (cdr ls) ls2))
+    )
+  )
+)
+
 (define my-list
   (lambda (args)
     (if (null? args) '()
