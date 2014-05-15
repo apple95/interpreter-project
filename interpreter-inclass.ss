@@ -347,8 +347,8 @@
 (define apply-env
   (lambda (env var succeed fail)
     (let ((x (apply-env-ref env var succeed fail)))
-      (if (proc-val? x) x
-      (deref x)))))
+      (if (cell? x) (deref x)
+       x))))
 
 (define deref cell-ref)
 (define set-ref! set-cell!)
@@ -447,8 +447,8 @@
 	(cases expression form
 	       [define-exp (id body)
 		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env))]
-	       [else (eval-exp form global-env)])
-    (eval-exp form global-env))))
+	       [else (eval-exp form (empty-env))])
+    (eval-exp form (empty-env)))))
 
 (define reset-global-env 
  (lambda () (set! global-env (make-init-env))))
@@ -485,20 +485,22 @@
       [lambda-pair-exp (arg body)
 		       (closure-for-lambda-pair arg body env)]
       [app-exp (rator rands)
-        (let ([proc-value (eval-exp rator env)]
+        (let* ([proc-value (eval-exp rator env)]
               [args (eval-rands rands env)])
           (apply-proc proc-value args))]
       [set!-exp (id exp)
 		     (set-ref!
 		      (apply-env-ref env id (lambda (x) x) 
+			 (lambda () (apply-env-ref global-env id
+				 (lambda (x) x)
 				 (lambda () (eopl:error 'apply-env ; procedure to call if id not in env
 							"variable not found in environment: ~s"
-							id)))
+							id)))))
 		      (eval-exp exp env))]
       [while-exp (test body) (eval-exp-while-loop test body env)]  
       [define-exp (id body)
-	  (apply-env-ref global-env id (lambda (x) (display 1) (newline) (set-ref! x (eval-exp body env))) 
-				 (lambda () (display global-env) (set! global-env (extend-env (list id) (list (eval-exp body env)) global-env)) (display global-env)))]
+	  (apply-env-ref global-env id (lambda (x) (set-ref! x (eval-exp body env))) 
+				 (lambda () (set! global-env (extend-env (list id) (list (eval-exp body env)) global-env))))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ;;performs eval exp on all bodies in the current environment
