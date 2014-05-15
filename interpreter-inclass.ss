@@ -67,6 +67,9 @@
    (bodies (list-of expression?)))
   (or-exp
    (bodies (list-of expression?)))
+   (define-exp
+    (id symbol?)
+    (body expression?))
   (app-exp
     (rator expression?)
     (rand (list-of expression?))))
@@ -108,10 +111,7 @@
    (env environment?)]
 )
 
-(define-datatype define-glb define-glb?
-  [define-exp
-    (id symbol?)
-    (body expression?)])
+ 
 
 (define (cell val)
   (cons val 'its-a-cell))
@@ -221,7 +221,7 @@
 	   ((not (symbol? (cadr datum))) (eopl:error 'parse-exp "Invalid first arguemtn for set! expression ~s" datum))
 	  (else (set!-exp (cadr datum) (parse-exp (caddr datum))))))
 	 ((eqv? (car datum) 'define)
-	  (define-exp (cadr datum) (syntax-expand (parse-exp (caddr datum)))))
+	  (define-exp (cadr datum) (parse-exp (caddr datum))))
          (else
 	   (app-exp
            (parse-exp (car datum))
@@ -361,7 +361,6 @@
 ;-----------------------+
 (define syntax-expand
   (lambda (exp)
-    (if (define-glb? exp) exp
     (cases expression exp
 	   (var-exp (id) exp)
 	   (lit-exp (data) exp)
@@ -383,6 +382,7 @@
 	   (else-exp (bodies) (app-exp (lambda-exp '() (map syntax-expand bodies)) '()))
 	   (set!-exp (id body) exp)
 	   (or-exp (bodies) (syntax-or-helper bodies))
+	    (define-exp (id body) (define-exp id (syntax-expand body)))
 	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand)))))))
 
 (define letrec-to-set-converter
@@ -443,10 +443,11 @@
 (define top-level-eval
   (lambda (form)
     ; later we may add things that are not expressions.
-    (if (define-glb? form)
-	(cases define-glb form
+    (if (expression? form)
+	(cases expression form
 	       [define-exp (id body)
-		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env))])
+		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env))]
+	       [else (eval-exp form global-env)])
     (eval-exp form global-env))))
 
 (define reset-global-env 
@@ -463,7 +464,7 @@
 				(apply-env env id; look up its value.
       	   (lambda (x) x) ; procedure to call if id is in the environment 
            (lambda () (apply-env global-env id
-				 (lambda (x) x) 
+				 (lambda (x) x)
 				 (lambda () (eopl:error 'apply-env ; procedure to call if id not in env
 							"variable not found in environment: ~s"
 							id)))))]
@@ -495,6 +496,9 @@
 							id)))
 		      (eval-exp exp env))]
       [while-exp (test body) (eval-exp-while-loop test body env)]  
+      [define-exp (id body)
+	  (apply-env-ref global-env id (lambda (x) (display 1) (newline) (set-ref! x (eval-exp body env))) 
+				 (lambda () (display global-env) (set! global-env (extend-env (list id) (list (eval-exp body env)) global-env)) (display global-env)))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ;;performs eval exp on all bodies in the current environment
