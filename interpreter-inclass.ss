@@ -445,7 +445,7 @@
     (if (null? ls) (lit-exp #f)
 	(let ((x (syntax-expand (car ls))))
 	(if (null? (cdr ls)) x
-        (if-else-exp x x (syntax-or-helper (cdr ls))))))))
+        (if-else-exp x (lit-exp #t) (syntax-or-helper (cdr ls))))))))
 
 
 
