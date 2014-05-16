@@ -110,7 +110,29 @@
    (body (list-of expression?))
    (env environment?)]
 )
-
+;;continuation datatype
+(define-datatype continuation continuation?
+  (test-k (then-exp expression?)
+	  (else-exp expression?)
+	  (env environment?)
+	  (k continuation?))
+  (rator-k (rands (list-of? expression?))
+	   (env environment?)
+	   (k continuation?))
+  (rands-k (proc-value scheme-value?)
+	   (k continuation?)))
+;;apply k, going to be used when we convert to cps
+(define apply-k
+  (lambda (k val)
+    (cases continuation k
+	   [test-k (then-exp else-exp env k)
+		   (if val
+		       (eval-exp then-exp env k)
+		       (eval-exp else-exp env k))]
+	   [rator-k (rands env k)
+		    (eval-rands rands env (rands-k val k))]
+	   [rands-k (proc-value k)
+		    (apply-proc proc-value val k)])))
  
 
 (define (cell val)
@@ -370,7 +392,7 @@
 	   (named-let-exp (id vars exprs body)
 			  		    (syntax-expand (letrec-exp (list id) (list (lambda-exp vars body)) (list (app-exp (var-exp id) exprs)))))
 	   (let-exp (ids exprs body) (app-exp (syntax-expand (lambda-exp ids body)) (map syntax-expand exprs)))
-	   (let*-exp (ids exprs body) (syntax-expand (let-exp ids exprs body)))
+	   (let*-exp (ids exprs body) (syntax-expand (let*-to-let ids exprs body)))
 	   (letrec-exp (ids methods body) 
 		       (syntax-expand (let-exp ids methods (list (letrec-to-set-converter ids methods (map syntax-expand body))))))
 	   (if-exp (bool body) (if-exp (syntax-expand bool) (syntax-expand body)))
@@ -383,8 +405,15 @@
 	   (set!-exp (id body) exp)
 	   (or-exp (bodies) (syntax-or-helper bodies))
 	    (define-exp (id body) (define-exp id (syntax-expand body)))
-	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand)))))))
+	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand))))))
 
+;;used by syntax-expand to convert let* to let
+(define let*-to-let
+  (lambda (ids exprs body)
+    (if (null? (cdr ids)) (let-exp (list (car ids)) (list (car exprs)) body)
+	(let-exp (list (car ids)) (list (car exprs)) (list (let*-to-let (cdr ids) (cdr exprs) body))))))
+
+;;used by syntax-expand to convert letrec to let
 (define letrec-to-set-converter
   (lambda (names vals body)
     (if (null? names) (let-exp '() '()  body)
@@ -445,9 +474,9 @@
     ; later we may add things that are not expressions.
     (if (expression? form)
 	(cases expression form
-	       [define-exp (id body)
-		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env))]
-	       [else (eval-exp form (empty-env))])
+	       (define-exp (id body)
+		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env)))
+	       (else (eval-exp form (empty-env))))
     (eval-exp form (empty-env)))))
 
 (define reset-global-env 
@@ -459,35 +488,41 @@
 (define eval-exp
   (lambda (exp env)
     (cases expression exp
-      [lit-exp (datum) datum]
+      [lit-exp (datum) datum
+	       ]
       [var-exp (id)
-				(apply-env env id; look up its value.
-      	   (lambda (x) x) ; procedure to call if id is in the environment 
-           (lambda () (apply-env global-env id
-				 (lambda (x) x)
-				 (lambda () (eopl:error 'apply-env ; procedure to call if id not in env
-							"variable not found in environment: ~s"
-							id)))))]
+	       (apply-env env id; look up its value.
+			  (lambda (x) x) ; procedure to call if id is in the environment 
+			  (lambda () (apply-env global-env id
+						(lambda (x) x)
+						(lambda () (eopl:error 'apply-env ; procedure to call if id not in env
+								       "variable not found in environment: ~s"
+								       id)))))
+	       ]
       [let-exp (ids exprs bodies)
 	       (let ((envir (extend-env ids (map (lambda (x) (eval-exp x env)) exprs) env)))
-		 (eval-exp-loop bodies envir))]
-    
+		 (eval-exp-loop bodies envir))
+	       ]
       [if-else-exp (test then-body else-body)
-	      (if (eval-exp test env) (eval-exp then-body env) (eval-exp else-body env))]
+	      (if (eval-exp test env) (eval-exp then-body env) (eval-exp else-body env))
+	      ]
       [if-exp (test then-body)
-        (if (eval-exp test env) (eval-exp then-body env))
-      ]
+	      (if (eval-exp test env) (eval-exp then-body env))
+	      ]
       [lambda-exp (args body)
-		  (closure args body env)]
+		  (closure args body env)
+		  ]
       [lambda-symbol-exp (arg body)
-      (closure-for-lambda-symbol (list arg) body env)
-      ]
+			 (closure-for-lambda-symbol (list arg) body env)
+			 ]
       [lambda-pair-exp (arg body)
-		       (closure-for-lambda-pair arg body env)]
+		       (closure-for-lambda-pair arg body env)
+		       ]
       [app-exp (rator rands)
         (let* ([proc-value (eval-exp rator env)]
               [args (eval-rands rands env)])
-          (apply-proc proc-value args))]
+          (apply-proc proc-value args))
+	]
       [set!-exp (id exp)
 		     (set-ref!
 		      (apply-env-ref env id (lambda (x) x) 
