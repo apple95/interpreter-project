@@ -536,7 +536,7 @@
 (define display pretty-print)
 
 ; eval-exp is the main component of the interpreter
-
+;;needs to be in cps
 (define eval-exp
   (lambda (exp env)
     (cases expression exp
@@ -609,13 +609,14 @@
 )
 
 ;;performs eval exp on all bodies in the current environment
+;;CPS
 (define eval-exp-loop
   (lambda (bodies env)
     (if (null? (cdr bodies)) (eval-exp (car bodies) env)
 	(begin
 	  (eval-exp (car bodies) env)
 	  (eval-exp-loop (cdr bodies) env)))))
-
+;;CPS
 (define eval-exp-while-loop
   (lambda (test bodies env)
     (letrec ([helper (lambda (test all-body rest-of-body env) 
@@ -633,7 +634,7 @@
     )))
 
 ; evaluate the list of operands, putting results into a list
-
+;;CPS
 (define eval-rands
   (lambda (rands env)
     (map (lambda (x) (eval-exp x env)) rands)))
@@ -641,7 +642,7 @@
 ;  Apply a procedure to its arguments.
 ;  At this point, we only have primitive procedures.  
 ;  User-defined procedures will be added later.
-
+;;CPS (maybe)
 (define apply-proc
   (lambda (proc-value args)
     (cases proc-val proc-value
@@ -739,6 +740,7 @@
     (if (null? args) '()
 	(if (null? (cdr args)) (car args)
 	    (cons (car args) (combine-args))))))
+
 (define my-map
   (lambda (f ls . more)
     (if (null? more)
