@@ -496,7 +496,7 @@
     (if (null? ls) (lit-exp #f)
 	(let ((x (syntax-expand (car ls))))
 	(if (null? (cdr ls)) x
-        (if-else-exp x (lit-exp #t) (syntax-or-helper (cdr ls))))))))
+        (let-exp '(random-or-var) (list x) (list (if-else-exp (var-exp 'random-or-var) (var-exp 'random-or-var) (syntax-or-helper (cdr ls))))))))))
 
 
 
