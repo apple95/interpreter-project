@@ -59,7 +59,7 @@
     (test expression?)
     (body (list-of expression?)))
   (set!-exp
-   (id symbol?)
+   (id (lambda(x) (or (symbol? x) (expression? x))))
    (body expression?))
   (lit-exp 
    (data lit-exp?))
@@ -257,7 +257,7 @@
 	 ((eqv? (car datum) 'set!)
 	  (cond
 	   ((not (eq? 2 (length (cdr datum)))) (eopl:error 'parse-exp "Invalid set! expression length ~s" datum))
-	   ((not (symbol? (cadr datum))) (eopl:error 'parse-exp "Invalid first arguemtn for set! expression ~s" datum))
+	   ((not (symbol? (cadr datum))) (eopl:error 'parse-exp "Invalid first argument for set! expression ~s" datum))
 	  (else (set!-exp (cadr datum) (parse-exp (caddr datum))))))
 	 ((eqv? (car datum) 'define)
 	  (define-exp (cadr datum) (parse-exp (caddr datum))))
@@ -405,11 +405,11 @@
 	(let ((pos (list-find-position sym syms)))
       	  (if (number? pos)
 	          (let ([val (list-ref vals pos)])
-          (cond [(cell? val) (succeed val)]
-                [(ref? val) (apply-env-ref current-env (car val) succeed fail)]
-          )
-          )
-	      (apply-env-ref env sym succeed fail)))))))
+		    (cond [(cell? val) (succeed val)]
+			  [(ref? val) (if (not (eq? (car val) sym))(apply-env-ref current-env (car val) succeed fail)(apply-env-ref global-env (car val) succeed fail))]
+			  )
+		    )
+		  (apply-env-ref env sym succeed fail)))))))
 
 
 
@@ -582,8 +582,9 @@
 	]
       [set!-exp (id exp) 
 		     (set-ref!
-		      (apply-env-ref env id (lambda (x) x) 
-			 (lambda () (apply-env-ref global-env id
+		      (apply-env-ref env id 
+				     (lambda (x) x)
+				     (lambda () (apply-env-ref global-env id
 				 (lambda (x) x)
 				 (lambda () (eopl:error 'apply-env ; procedure to call if id not in env
 							"variable not found in environment: ~s"
@@ -783,7 +784,7 @@
 	(cons (car args) (my-list (cdr args))))))
 (define rep      ; "read-eval-print" loop.
   (lambda ()
-    (display "--> ")
+    (display -->)
     ;; notice that we don't save changes to the environment...
     (let ([input (read)])
         (if (equal? input '(exit))
