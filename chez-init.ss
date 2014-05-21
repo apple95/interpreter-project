@@ -368,4 +368,4 @@
                      ((car preds) (car obj))
                      (loop (cdr obj) (cdr preds))))))))))
 										 
-									
+										 

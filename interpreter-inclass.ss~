@@ -24,6 +24,13 @@
   (lambda-exp
      (id (list-of symbol?))
     (body (list-of expression?)))
+  (ref-sym-exp
+    (id symbol?))
+  (no-ref-sym-exp
+    (id symbol?))
+  (lambda-ref-exp
+    (id (list-of expression?))
+    (body (list-of expression?)))
   (let-exp
    (ids (list-of symbol?))
    (exprs (list-of expression?))
@@ -52,7 +59,7 @@
     (test expression?)
     (body (list-of expression?)))
   (set!-exp
-   (id symbol?)
+   (id (lambda(x) (or (symbol? x) (expression? x))))
    (body expression?))
   (lit-exp 
    (data lit-exp?))
@@ -105,21 +112,51 @@
     (params (list-of symbol?))
     (body (list-of expression?))
     (env environment?)]
+  [closure-for-ref
+    (params (list-of expression?))
+    (body (list-of expression?))
+    (env environment?)
+  ]
   [closure-for-lambda-pair
    (params pair?)
    (body (list-of expression?))
    (env environment?)]
 )
-
+;;continuation datatype
+(define-datatype continuation continuation?
+  (test-k (then-exp expression?)
+	  (else-exp expression?)
+	  (env environment?)
+	  (k continuation?))
+  (rator-k (rands (list-of? expression?))
+	   (env environment?)
+	   (k continuation?))
+  (rands-k (proc-value scheme-value?)
+	   (k continuation?)))
+;;apply k, going to be used when we convert to cps
+(define apply-k
+  (lambda (k val)
+    (cases continuation k
+	   [test-k (then-exp else-exp env k)
+		   (if val
+		       (eval-exp then-exp env k)
+		       (eval-exp else-exp env k))]
+	   [rator-k (rands env k)
+		    (eval-rands rands env (rands-k val k))]
+	   [rands-k (proc-value k)
+		    (apply-proc proc-value val k)])))
  
 
 (define (cell val)
   (cons val 'its-a-cell))
+(define (ref val)
+  (cons val 'its-a-ref))
 (define cell-ref car)
 (define set-cell! set-car!)
 (define (cell? x)
   (and (pair? x) (eqv? (cdr x) 'its-a-cell)))
-
+(define (ref? x)
+  (and (pair? x) (eqv? (cdr x) 'its-a-ref)))
 
 
 ;-------------------+
@@ -165,7 +202,9 @@
 		    (if (list? (cadr datum))
 			       (if (or (null? (cadr datum)) (andmap symbol? (cadr datum)))
 				   (lambda-exp (cadr datum) (map parse-exp (cddr datum))) 
-				   (eopl:error 'parse-exp "Invaild arguments in lambda expression. Must be symbols: ~s" datum))
+				   (if (ormap (lambda (x) (if (list? x) (equal? (car x) 'ref) #f)) (cadr datum)) 
+            (lambda-ref-exp (map (lambda (x) (if (symbol? x) (no-ref-sym-exp x) (ref-sym-exp (cadr x)))) (cadr datum)) (map parse-exp (cddr datum)))
+            (eopl:error 'parse-exp "Invaild arguments in lambda expression. Must be symbols: ~s" datum)))
 			       (if (not (and-pred-imlist (cadr datum) symbol?)) (eopl:error 'parse-exp "Invalid arguments in lambda expression. Must be symbols: ~s" datum)
 				   (lambda-pair-exp (cadr datum) (map parse-exp (cddr datum)))))
 		    (eopl:error 'parse-exp "Invaild arguments in lambda expression. Must be symbols: ~s" datum)))))
@@ -218,7 +257,7 @@
 	 ((eqv? (car datum) 'set!)
 	  (cond
 	   ((not (eq? 2 (length (cdr datum)))) (eopl:error 'parse-exp "Invalid set! expression length ~s" datum))
-	   ((not (symbol? (cadr datum))) (eopl:error 'parse-exp "Invalid first arguemtn for set! expression ~s" datum))
+	   ((not (symbol? (cadr datum))) (eopl:error 'parse-exp "Invalid first argument for set! expression ~s" datum))
 	  (else (set!-exp (cadr datum) (parse-exp (caddr datum))))))
 	 ((eqv? (car datum) 'define)
 	  (define-exp (cadr datum) (parse-exp (caddr datum))))
@@ -308,6 +347,32 @@
 	(extended-env-record ls (map cell (adjust-vals-for-length (length ls) vals)) env))
 	(extended-env-record syms (map cell vals) env))))
 
+(define extend-env-ref
+  (lambda (syms vals env)
+    (extended-env-record (map cadr syms) (extend-env-ref-helper syms vals) env)
+  )
+)
+
+(define extend-env-ref-helper
+  (lambda (syms vals)
+    (if (null? syms)
+      '()
+      (cons (extend-env-ref-helper2 (car syms) (car vals)) (extend-env-ref-helper (cdr syms) (cdr vals)))
+    )
+  )
+)
+
+(define extend-env-ref-helper2
+  (lambda (sym val)
+    (if (equal? 'ref-sym-exp (car sym))
+      (ref val)
+      (cell val)
+    )
+  )
+)
+
+
+
 (define list-find-position
   (lambda (sym los)
     (list-index (lambda (xsym) (eqv? sym xsym)) los)))
@@ -332,15 +397,19 @@
 	(cons (car vals) (adjust-vals-for-length (- l 1) (cdr vals))))))
 
 (define apply-env-ref
-  (lambda (env sym succeed fail) ; succeed and fail are procedures applied if the var is or isn't found, respectively.
-    (cases environment env
+  (lambda (current-env sym succeed fail) ; succeed and fail are procedures applied if the var is or isn't found, respectively.
+    (cases environment current-env
       (empty-env-record ()
         (fail))
-      (extended-env-record (syms vals env)
+      (extended-env-record (syms vals env) 
 	(let ((pos (list-find-position sym syms)))
       	  (if (number? pos)
-	      (succeed (list-ref vals pos))
-	      (apply-env-ref env sym succeed fail)))))))
+	          (let ([val (list-ref vals pos)])
+		    (cond [(cell? val) (succeed val)]
+			  [(ref? val) (if (not (eq? (car val) sym))(apply-env-ref current-env (car val) succeed fail)(apply-env-ref global-env (car val) succeed fail))]
+			  )
+		    )
+		  (apply-env-ref env sym succeed fail)))))))
 
 
 
@@ -359,18 +428,22 @@
 ;   SYNTAX EXPANSION    |
 ;                       |
 ;-----------------------+
+
 (define syntax-expand
   (lambda (exp)
     (cases expression exp
 	   (var-exp (id) exp)
 	   (lit-exp (data) exp)
+     (ref-sym-exp (id) exp)
+     (no-ref-sym-exp (id) exp)
 	   (lambda-exp (id body) (lambda-exp id (map syntax-expand body)))
+     (lambda-ref-exp (id body) (lambda-ref-exp id (map syntax-expand body)))
 	   (lambda-symbol-exp (id body) (lambda-symbol-exp id (map syntax-expand body)))
 	   (lambda-pair-exp (id body) (lambda-pair-exp id (map syntax-expand body)))
 	   (named-let-exp (id vars exprs body)
 			  		    (syntax-expand (letrec-exp (list id) (list (lambda-exp vars body)) (list (app-exp (var-exp id) exprs)))))
 	   (let-exp (ids exprs body) (app-exp (syntax-expand (lambda-exp ids body)) (map syntax-expand exprs)))
-	   (let*-exp (ids exprs body) (syntax-expand (let-exp ids exprs body)))
+	   (let*-exp (ids exprs body) (syntax-expand (let*-to-let ids exprs body)))
 	   (letrec-exp (ids methods body) 
 		       (syntax-expand (let-exp ids methods (list (letrec-to-set-converter ids methods (map syntax-expand body))))))
 	   (if-exp (bool body) (if-exp (syntax-expand bool) (syntax-expand body)))
@@ -383,8 +456,15 @@
 	   (set!-exp (id body) exp)
 	   (or-exp (bodies) (syntax-or-helper bodies))
 	    (define-exp (id body) (define-exp id (syntax-expand body)))
-	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand)))))))
+	   (app-exp (rator rand) (app-exp (syntax-expand rator) (map syntax-expand rand))))))
 
+;;used by syntax-expand to convert let* to let
+(define let*-to-let
+  (lambda (ids exprs body)
+    (if (null? (cdr ids)) (let-exp (list (car ids)) (list (car exprs)) body)
+	(let-exp (list (car ids)) (list (car exprs)) (list (let*-to-let (cdr ids) (cdr exprs) body))))))
+
+;;used by syntax-expand to convert letrec to let
 (define letrec-to-set-converter
   (lambda (names vals body)
     (if (null? names) (let-exp '() '()  body)
@@ -416,7 +496,7 @@
     (if (null? ls) (lit-exp #f)
 	(let ((x (syntax-expand (car ls))))
 	(if (null? (cdr ls)) x
-        (if-else-exp x x (syntax-or-helper (cdr ls))))))))
+        (let-exp '(random-or-var) (list x) (list (if-else-exp (var-exp 'random-or-var) (var-exp 'random-or-var) (syntax-or-helper (cdr ls))))))))))
 
 
 
@@ -445,53 +525,66 @@
     ; later we may add things that are not expressions.
     (if (expression? form)
 	(cases expression form
-	       [define-exp (id body)
-		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env))]
-	       [else (eval-exp form (empty-env))])
+	       (define-exp (id body)
+		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env)))
+	       (else (eval-exp form (empty-env))))
     (eval-exp form (empty-env)))))
 
 (define reset-global-env 
  (lambda () (set! global-env (make-init-env))))
 
+(define display pretty-print)
 
 ; eval-exp is the main component of the interpreter
 
 (define eval-exp
   (lambda (exp env)
     (cases expression exp
-      [lit-exp (datum) datum]
+      [lit-exp (datum) datum
+	       ]
       [var-exp (id)
-				(apply-env env id; look up its value.
-      	   (lambda (x) x) ; procedure to call if id is in the environment 
-           (lambda () (apply-env global-env id
-				 (lambda (x) x)
-				 (lambda () (eopl:error 'apply-env ; procedure to call if id not in env
-							"variable not found in environment: ~s"
-							id)))))]
+	       (apply-env env id; look up its value.
+			  (lambda (x) x) ; procedure to call if id is in the environment 
+			  (lambda () (apply-env global-env id
+						(lambda (x) x)
+						(lambda () (eopl:error 'apply-env ; procedure to call if id not in env
+								       "variable not found in environment: ~s"
+								       id)))))
+	       ]
       [let-exp (ids exprs bodies)
 	       (let ((envir (extend-env ids (map (lambda (x) (eval-exp x env)) exprs) env)))
-		 (eval-exp-loop bodies envir))]
-    
+		 (eval-exp-loop bodies envir))
+	       ]
       [if-else-exp (test then-body else-body)
-	      (if (eval-exp test env) (eval-exp then-body env) (eval-exp else-body env))]
+	      (if (eval-exp test env) (eval-exp then-body env) (eval-exp else-body env))
+	      ]
       [if-exp (test then-body)
-        (if (eval-exp test env) (eval-exp then-body env))
-      ]
+	      (if (eval-exp test env) (eval-exp then-body env))
+	      ]
       [lambda-exp (args body)
-		  (closure args body env)]
-      [lambda-symbol-exp (arg body)
-      (closure-for-lambda-symbol (list arg) body env)
+		  (closure args body env)
+		  ]
+      [lambda-ref-exp (args body)
+      (closure-for-ref args body env)
       ]
+      [lambda-symbol-exp (arg body)
+			 (closure-for-lambda-symbol (list arg) body env)
+			 ]
       [lambda-pair-exp (arg body)
-		       (closure-for-lambda-pair arg body env)]
-      [app-exp (rator rands)
+		       (closure-for-lambda-pair arg body env)
+		       ]
+      [app-exp (rator rands)  ;(display rator) (display rands) 
         (let* ([proc-value (eval-exp rator env)]
               [args (eval-rands rands env)])
-          (apply-proc proc-value args))]
-      [set!-exp (id exp)
+          (if (equal? (car proc-value) 'closure-for-ref)
+             (apply-proc (closure-for-ref (cadr proc-value) (caddr proc-value) env) (app-ref-helper (cadr proc-value) rands args))
+             (apply-proc proc-value args)))
+	]
+      [set!-exp (id exp) 
 		     (set-ref!
-		      (apply-env-ref env id (lambda (x) x) 
-			 (lambda () (apply-env-ref global-env id
+		      (apply-env-ref env id 
+				     (lambda (x) x)
+				     (lambda () (apply-env-ref global-env id
 				 (lambda (x) x)
 				 (lambda () (eopl:error 'apply-env ; procedure to call if id not in env
 							"variable not found in environment: ~s"
@@ -502,6 +595,18 @@
 	  (apply-env-ref global-env id (lambda (x) (set-ref! x (eval-exp body env))) 
 				 (lambda () (set! global-env (extend-env (list id) (list (eval-exp body env)) global-env))))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
+
+(define app-ref-helper
+  (lambda (syms rands args)
+    (if (null? syms)
+      '()
+      (if (equal? (car (car syms)) 'ref-sym-exp)
+        (cons (cadr (car rands)) (app-ref-helper (cdr syms) (cdr rands) (cdr args)))
+        (cons (car args) (app-ref-helper (cdr syms) (cdr rands) (cdr args)))
+      )
+    )
+  )
+)
 
 ;;performs eval exp on all bodies in the current environment
 (define eval-exp-loop
@@ -544,6 +649,10 @@
       [closure (params body env)
 	       (let ([extended-env (extend-env params args env)])
 		    (eval-exp-loop body extended-env))]
+      [closure-for-ref (params body env)
+        (let ([extended-env (extend-env-ref params args env)])
+        (eval-exp-loop body extended-env))
+      ]
       [closure-for-lambda-symbol (params body env)
          (let ([extended-env (extend-env params (list args) env)])
         (eval-exp-loop body extended-env))]
@@ -675,7 +784,7 @@
 	(cons (car args) (my-list (cdr args))))))
 (define rep      ; "read-eval-print" loop.
   (lambda ()
-    (display "--> ")
+    (display -->)
     ;; notice that we don't save changes to the environment...
     (let ([input (read)])
         (if (equal? input '(exit))
