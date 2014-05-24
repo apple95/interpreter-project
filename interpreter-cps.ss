@@ -125,13 +125,17 @@
 
 ;;continuation datatype
 (define-datatype continuation continuation?
+  (identity-k (boo boolean?))
   (test-k (then-exp expression?)
 	  (else-exp expression?)
 	  (env environment?)
 	  (k continuation?))
-  (rator-k (rands (list-of? expression?))
+  (rator-k (rands (list-of expression?))
 	   (env environment?)
 	   (k continuation?))
+  (next-rands-k (rands (list-of expression?))
+     (env environment?)
+     (k continuation?))
   (rands-k (proc-value scheme-value?)
 	   (k continuation?)))
 
@@ -139,12 +143,16 @@
 (define apply-k
   (lambda (k val)
     (cases continuation k
+     [identity-k (boo) val]
 	   [test-k (then-exp else-exp env k)
 		   (if val
 		       (eval-exp then-exp env k)
 		       (eval-exp else-exp env k))]
 	   [rator-k (rands env k)
 		    (eval-rands rands env (rands-k val k))]
+     [next-rands-k (rands env k)
+        (cons val (eval-rands rands env k))
+     ]
 	   [rands-k (proc-value k)
 		    (apply-proc proc-value val k)])))
  
@@ -404,10 +412,13 @@
       (empty-env-record ()
         (fail))
       (extended-env-record (syms vals env) 
+        (display 1)
+        (display succeed)
 	(let ((pos (list-find-position sym syms)))
       	  (if (number? pos)
 	          (let ([val (list-ref vals pos)])
-		    (cond [(cell? val) (succeed val)]
+              (display val)
+		    (cond [(cell? val) (apply-k succeed val)]
 			  [(ref? val) (if (not (eq? (car val) sym))(apply-env-ref current-env (car val) succeed fail)(apply-env-ref global-env (car val) succeed fail))]
 			  )
 		    )
@@ -530,7 +541,7 @@
 	       (define-exp (id body)
 		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env)))
 	       (else (eval-exp form (empty-env))))
-    (eval-exp form (empty-env)))))
+    (eval-exp form (empty-env) (identity-k #t)))))
 
 (define reset-global-env 
  (lambda () (set! global-env (make-init-env))))
@@ -540,13 +551,15 @@
 ; eval-exp is the main component of the interpreter
 ;;needs to be in cps
 (define eval-exp
-  (lambda (exp env)
+  (lambda (exp env k)
     (cases expression exp
-      [lit-exp (datum) datum
+      [lit-exp (datum) (display k) (display datum) (apply-k k datum)
 	       ]
       [var-exp (id)
+        (display 'var-exp)
+        (display k)
 	       (apply-env env id; look up its value.
-			  (lambda (x) x) ; procedure to call if id is in the environment 
+			  k ; procedure to call if id is in the environment 
 			  (lambda () (apply-env global-env id
 						(lambda (x) x)
 						(lambda () (eopl:error 'apply-env ; procedure to call if id not in env
@@ -576,11 +589,9 @@
 		       (closure-for-lambda-pair arg body env)
 		       ]
       [app-exp (rator rands)  ;(display rator) (display rands) 
-        (let* ([proc-value (eval-exp rator env)]
-              [args (eval-rands rands env)])
-          (if (equal? (car proc-value) 'closure-for-ref)
-             (apply-proc (closure-for-ref (cadr proc-value) (caddr proc-value) env) (app-ref-helper (cadr proc-value) rands args))
-             (apply-proc proc-value args)))
+        (display 'app-exp)
+        (display k)
+        (eval-exp rator env (rator-k rands env k))
 	]
       [set!-exp (id exp) 
 		     (set-ref!
@@ -638,15 +649,20 @@
 ; evaluate the list of operands, putting results into a list
 ;;CPS
 (define eval-rands
-  (lambda (rands env)
-    (map (lambda (x) (eval-exp x env)) rands)))
+  (lambda (rands evaluated-rands env k)
+    ;(cond [(null? rands) '()]
+     ; [else (eval-exp (car rands) env (next-rands-k (cdr rands) env k))]))
+    ;(map-cps (lambda (x) (eval-exp x )))
+  )
+)
+    ;(map (lambda (x) (eval-exp x env)) rands)))
 
 ;  Apply a procedure to its arguments.
 ;  At this point, we only have primitive procedures.  
 ;  User-defined procedures will be added later.
 ;;CPS (maybe)
 (define apply-proc
-  (lambda (proc-value args)
+  (lambda (proc-value args k)
     (cases proc-val proc-value
       [prim-proc (op) (apply-prim-proc op args)]
       [closure (params body env)
@@ -788,7 +804,7 @@
 	(cons (car args) (my-list (cdr args))))))
 (define rep      ; "read-eval-print" loop.
   (lambda ()
-    (display -->)
+    (display '-->)
     ;; notice that we don't save changes to the environment...
     (let ([input (read)])
         (if (equal? input '(exit))

@@ -122,6 +122,7 @@
    (body (list-of expression?))
    (env environment?)]
 )
+
 ;;continuation datatype
 (define-datatype continuation continuation?
   (test-k (then-exp expression?)
@@ -133,6 +134,7 @@
 	   (k continuation?))
   (rands-k (proc-value scheme-value?)
 	   (k continuation?)))
+
 ;;apply k, going to be used when we convert to cps
 (define apply-k
   (lambda (k val)
@@ -784,9 +786,10 @@
   (lambda (args)
     (if (null? args) '()
 	(cons (car args) (my-list (cdr args))))))
+
 (define rep      ; "read-eval-print" loop.
   (lambda ()
-    (display -->)
+    (display '-->)
     ;; notice that we don't save changes to the environment...
     (let ([input (read)])
         (if (equal? input '(exit))
