@@ -133,12 +133,28 @@
   (rator-k (rands (list-of expression?))
 	   (env environment?)
 	   (k continuation?))
-  (next-rands-k (rands (list-of expression?))
-     (env environment?)
-     (k continuation?))
+  (map-k (proc procedure?)
+          (ls (list-of expression?))
+          (k continuation?)
+    )
+  (map-helper-k 
+    (value scheme-value?)
+    (proc procedure?)
+    (ls (list-of expression?))
+    (k continuation?)
+  )
   (rands-k (proc-value scheme-value?)
-	   (k continuation?)))
-
+	   (k continuation?))
+  (next-rands-k 
+    (rands (list-of expression?))
+    (env environment?)
+    (k continuation?)
+  )
+  (cons-k 
+    (evaluated-rand scheme-value?)
+    (k continuation?)
+  )
+  )
 ;;apply k, going to be used when we convert to cps
 (define apply-k
   (lambda (k val)
@@ -149,9 +165,30 @@
 		       (eval-exp then-exp env k)
 		       (eval-exp else-exp env k))]
 	   [rator-k (rands env k)
+        ;(display rands)
+        ;(display k)
+        ;(display val)
 		    (eval-rands rands env (rands-k val k))]
      [next-rands-k (rands env k)
-        (cons val (eval-rands rands env k))
+        ;(display 'next-rands-k)
+        ;(display val)
+        (eval-rands rands env (cons-k val k))
+     ]
+     [cons-k (evaluated-rand k)
+        ;(display 'con-k)
+        ;(display val)
+        ;(display k)
+        ;(display evaluated-rand)
+        (apply-k k (cons evaluated-rand val))
+     ]
+     [map-k (proc ls k)
+        (if (null? ls)
+          (apply-k k '())
+          (proc (car ls) (map-helper-k val proc (cdr ls) k))
+        )
+     ]
+     [map-helper-k (value proc ls k)
+        (cons value (map-k proc ls k))
      ]
 	   [rands-k (proc-value k)
 		    (apply-proc proc-value val k)])))
@@ -412,13 +449,13 @@
       (empty-env-record ()
         (fail))
       (extended-env-record (syms vals env) 
-        (display 1)
-        (display succeed)
+        ;(display 1)
+        ;(display succeed)
 	(let ((pos (list-find-position sym syms)))
       	  (if (number? pos)
 	          (let ([val (list-ref vals pos)])
-              (display val)
-		    (cond [(cell? val) (apply-k succeed val)]
+              ;(display (car val))
+		    (cond [(cell? val) (apply-k succeed (car val))]
 			  [(ref? val) (if (not (eq? (car val) sym))(apply-env-ref current-env (car val) succeed fail)(apply-env-ref global-env (car val) succeed fail))]
 			  )
 		    )
@@ -428,7 +465,11 @@
 
 (define apply-env
   (lambda (env var succeed fail)
+    ;(display 'succeed)
+    ;(display succeed)
     (let ((x (apply-env-ref env var succeed fail)))
+      ;(display 'x)
+      ;(display x)
       (if (cell? x) (deref x)
        x))))
 
@@ -539,8 +580,8 @@
     (if (expression? form)
 	(cases expression form
 	       (define-exp (id body)
-		 (set! global-env (extend-env (list id) (list (eval-exp body global-env)) global-env)))
-	       (else (eval-exp form (empty-env))))
+		 (set! global-env (extend-env (list id) (list (eval-exp body global-env (identity-k #t))) global-env)))
+	       (else (eval-exp form (empty-env) (identity-k #t))))
     (eval-exp form (empty-env) (identity-k #t)))))
 
 (define reset-global-env 
@@ -553,15 +594,16 @@
 (define eval-exp
   (lambda (exp env k)
     (cases expression exp
-      [lit-exp (datum) (display k) (display datum) (apply-k k datum)
+      [lit-exp (datum) (apply-k k datum)
 	       ]
       [var-exp (id)
-        (display 'var-exp)
-        (display k)
+        ;(display 'var-exp)
+        ;(display 'rator:plus)
+        ;(display k)
 	       (apply-env env id; look up its value.
 			  k ; procedure to call if id is in the environment 
 			  (lambda () (apply-env global-env id
-						(lambda (x) x)
+						k
 						(lambda () (eopl:error 'apply-env ; procedure to call if id not in env
 								       "variable not found in environment: ~s"
 								       id)))))
@@ -589,8 +631,8 @@
 		       (closure-for-lambda-pair arg body env)
 		       ]
       [app-exp (rator rands)  ;(display rator) (display rands) 
-        (display 'app-exp)
-        (display k)
+        ;(display 'app-exp)
+        ;(display k)
         (eval-exp rator env (rator-k rands env k))
 	]
       [set!-exp (id exp) 
@@ -649,12 +691,22 @@
 ; evaluate the list of operands, putting results into a list
 ;;CPS
 (define eval-rands
-  (lambda (rands evaluated-rands env k)
+  (lambda (rands env k)
+    ;(display rands)
+    ;(display env)
+    ;(display k)
     ;(cond [(null? rands) '()]
      ; [else (eval-exp (car rands) env (next-rands-k (cdr rands) env k))]))
-    ;(map-cps (lambda (x) (eval-exp x )))
+    ;(apply-k (map-k (lambda (x k) (eval-exp x env k)) rands k)
+    (if (null? rands)
+        (apply-k k '())
+        ;(display 3)
+        (eval-exp (car rands) env (next-rands-k (cdr rands) env k))
+    )
   )
 )
+
+
     ;(map (lambda (x) (eval-exp x env)) rands)))
 
 ;  Apply a procedure to its arguments.
