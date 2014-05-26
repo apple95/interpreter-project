@@ -450,6 +450,7 @@
         (fail))
       (extended-env-record (syms vals env) 
         ;(display 1)
+        ;(display sym)
         ;(display succeed)
 	(let ((pos (list-find-position sym syms)))
       	  (if (number? pos)
@@ -466,7 +467,7 @@
 (define apply-env
   (lambda (env var succeed fail)
     ;(display 'succeed)
-    ;(display succeed)
+    ;(display var)
     (let ((x (apply-env-ref env var succeed fail)))
       ;(display 'x)
       ;(display x)
@@ -599,6 +600,7 @@
       [var-exp (id)
         ;(display 'var-exp)
         ;(display 'rator:plus)
+        ;(display id)
         ;(display k)
 	       (apply-env env id; look up its value.
 			  k ; procedure to call if id is in the environment 
@@ -633,7 +635,12 @@
       [app-exp (rator rands)  ;(display rator) (display rands) 
         ;(display 'app-exp)
         ;(display k)
-        (eval-exp rator env (rator-k rands env k))
+        ;(display rator)
+        ;(display rands)
+        ;(display k)
+        (if (equal? rator '(var-exp exit))
+          (eval-rands rands env (identity-k #t))
+          (eval-exp rator env (rator-k rands env k)))
 	]
       [set!-exp (id exp) 
 		     (set-ref!
@@ -743,6 +750,7 @@
 (define apply-prim-proc
   (lambda (prim-proc args)
     (case prim-proc
+      ;[()]
       [(+) (apply + args)] ;;needs multiple args
       [(-) (apply - args)]
       [(*) (apply * args)] ;;needs multiple args
